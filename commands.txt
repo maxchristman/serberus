@@ -1,7 +1,7 @@
-To mount the external drive:
+To mount the external drive (run on reboot):
 sudo mount /dev/sda1 /mnt/extra
 
-To set the CPU governors:
+To set the CPU governors (run on reboot):
 sudo cpupower frequency-set --governor performance
 
 To build the LLSCT passes:
@@ -9,8 +9,5 @@ mkdir -pv llsct-passes/build && cd llsct-passes/build
 cmake -G Ninja -DCMAKE_CXX_COMPILER=g++-12 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLLSCT_LLVM_DIR=$PWD/../../llsct-llvm/install -DLLSCT_REQUIRE_CET=Off ..
 ninja -j7 src/all
 
-To compile them with timing:
+To compile the benchmarks with timing:
 ninja -j7 time_compile clean_bench
-
-To compile them without timing:
-ninja -j7 raw_compile

@@ -1,6 +1,9 @@
 To mount the external drive (run on reboot):
 sudo mount /dev/sda1 /mnt/extra
 
+If you run out of space try:
+rm -rf ~/.cache
+
 To set the CPU governors (run on reboot):
 sudo cpupower frequency-set --governor performance
 
@@ -9,5 +12,17 @@ mkdir -pv llsct-passes/build && cd llsct-passes/build
 cmake -G Ninja -DCMAKE_CXX_COMPILER=g++-12 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLLSCT_LLVM_DIR=$PWD/../../llsct-llvm/install -DLLSCT_REQUIRE_CET=Off ..
 ninja -j7 src/all
 
+To clean and then build all benchmarks for hacl_chacha:
+./regen-hacl-chacha.sh
+
 To compile the benchmarks with timing:
-ninja -j7 time_compile clean_bench
+ninja -j7 time_compile
+
+To clean the benchmarks:
+ninja -j7 clean_bench
+
+To compile just one benchmark (with timing):
+ninja bench/time_hacl_chacha20_8192_base // Replace this with the benchmark name
+
+To clean just one benchmark:
+ninja -t clean bench/time_hacl_chacha20_8192_base // Also replace with benchmark name

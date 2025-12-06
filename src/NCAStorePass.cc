@@ -120,6 +120,7 @@ namespace clou {
 	std::set<llvm::Instruction *> ncas_sec;
 	for (llvm::Instruction& I : llvm::instructions(F)) {
 	  if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(&I)) {
+		// TODO: is this right? Shouldn't we be including non-constant-address stores?
 	    if (!util::isConstantAddressStore(SI))
 	      continue;
 	    auto *V = SI->getValueOperand();

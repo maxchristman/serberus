@@ -25,4 +25,11 @@ add_library(SpeculativeTaintAnalysis SHARED
 register_llvm_pass(SpeculativeTaintAnalysis)
 target_link_libraries(SpeculativeTaintAnalysis PRIVATE util Mitigation NonspeculativeTaintAnalysis ConstantAddressAnalysis)
 
+add_library(SecretTaintAnalysis SHARED
+  SecretTaintAnalysis.cc
+  ../include/clou/analysis/SecretTaintAnalysis.h
+)
+register_llvm_pass(SecretTaintAnalysis)
+target_link_libraries(SecretTaintAnalysis PRIVATE util Mitigation NonspeculativeTaintAnalysis ConstantAddressAnalysis)
+
 

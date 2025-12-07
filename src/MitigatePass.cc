@@ -54,6 +54,9 @@
 #include "clou/containers.h"
 #include "clou/CFG.h"
 
+// cse 583 includes:
+#include "clou/analysis/SecretTaintAnalysis.h"
+
 #ifdef HAVE_LIBPROFILER
 # include <gperftools/profiler.h>
 #endif
@@ -320,6 +323,7 @@ namespace clou {
 	AU.addRequired<ConstantAddressAnalysis>();
 	AU.addRequired<NonspeculativeTaint>();
 	AU.addRequired<SpeculativeTaint>();
+	AU.addRequired<SecretTaint>();
 	AU.addRequired<LeakAnalysis>();
       }
 
@@ -577,6 +581,9 @@ namespace clou {
       }
 
       bool runOnFunction(llvm::Function &F) override {
+        //llvm::errs() << "[MitigatePass] Processing function: " 
+        //     << F.getName() << "\n";
+
 		
 	if (whitelisted(F))
 	  return false;
@@ -798,7 +805,10 @@ namespace clou {
 	  std::set<llvm::Instruction *> ncas;
 	  llvm::copy(nca_nt_sec_stores, std::inserter(ncas, ncas.end()));
 	  llvm::copy(nca_t_sec_stores, std::inserter(ncas, ncas.end()));
-	  if (NCASAll)
+         //llvm::errs() << "[MitigatePass] NT # of ncas for xmit: " << nca_nt_sec_stores.size() << "\n";
+          //llvm::errs() << "[MitigatePass] T # of ncas for xmit: " << nca_t_sec_stores.size() << "\n";
+          //llvm::errs() << "[MitigatePass] Total # of ncas for xmit: " << ncas.size() << "\n";
+	  if (NCASAll) // always 0 
 	    for (auto& SI : util::instructions<llvm::StoreInst>(F))
 	      if (!CAA.isConstantAddress(SI.getPointerOperand()) && !llvm::isa<llvm::Constant>(SI.getValueOperand()))
 		ncas.insert(&SI);
@@ -849,7 +859,8 @@ namespace clou {
 		xmits.insert(T);
 	    }
 
-	    if (ExpandSTs) { 
+        // llvm::errs() << "ExpandSTs: " << ExpandSTs << "\n";
+	    if (ExpandSTs) { // seems to be always 0
 	      const auto& sources = get_sources(SI);
 	      A.add_st(make_node_set(sources), std::set<Node>{SI}, xmits);
 	    } else {
@@ -868,15 +879,17 @@ namespace clou {
 
 	    for (llvm::StoreInst *SI : llvm::concat<llvm::StoreInst * const>(nca_nt_sec_stores, nca_t_sec_stores)) {
 	      // Find sources.
+	      // TODO: maybe modify which stores are added as sources
 	      const auto& sources = get_sources(SI);
 	      A.add_st(make_node_set(sources), std::set<Node>{SI}, make_node_set(ctrls));
 	    }
 
 	  } else {
-	    std::set<llvm::Instruction *> ncas;
+	    std::set<llvm::Instruction *> ncas; // will contain nca_nt, nca_t, and memcpy inlines since NCASAll is always 0
 	    llvm::copy(nca_nt_sec_stores, std::inserter(ncas, ncas.end()));
 	    llvm::copy(nca_t_sec_stores, std::inserter(ncas, ncas.end()));
-	    if (NCASAll)
+            // llvm::errs() << "[MitigatePass] # of ncas for ctrl: " << ncas.size() << "\n";
+	    if (NCASAll) // not executed (always 0)
 	      for (auto& SI : util::instructions<llvm::StoreInst>(F))
 		if (!CAA.isConstantAddress(SI.getPointerOperand()) && !llvm::isa<llvm::Constant>(SI.getValueOperand()))
 		  ncas.insert(&SI);
@@ -978,6 +991,7 @@ namespace clou {
 	    std::set<llvm::Instruction *> sources;
 	    for (const auto& [kind, xmit_op] : get_transmitter_sensitive_operands(&xmit))
 	      for (llvm::Value *SourceV : get_incoming_loads(xmit_op))
+	      // TODO: maybe check if LoadInst uses secret value here?
 		if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(SourceV))
 		  sources.insert(LI);
 	    A.add_st(make_node_set(sources), std::set<Node>{&xmit});

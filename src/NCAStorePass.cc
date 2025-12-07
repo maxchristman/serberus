@@ -109,6 +109,7 @@ namespace clou {
       
       bool runOnFunction(llvm::Function& F) override {
 	llvm::errs() << getPassName() << " @ " << F.getName() << "\n";
+	llvm::errs() << "[NCAStorePass] running on function " << F.getName() << "\n";
 	auto& NST = getAnalysis<NonspeculativeTaint>();
 	auto& ST = getAnalysis<SpeculativeTaint>();
 	[[maybe_unused]] auto& LA = getAnalysis<LeakAnalysis>();

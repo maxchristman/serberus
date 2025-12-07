@@ -52,6 +52,7 @@ namespace clou {
 	  pub_vals.insert(I);
 
     // All pointer values are public.
+    // TODO: what does this correspond to in the paper
     for (llvm::Instruction& I : llvm::instructions(F))
       if (I.getType()->isPointerTy())
 	pub_vals.insert(&I);
@@ -147,6 +148,7 @@ namespace clou {
 	      break;
 
 	    case llvm::Intrinsic::annotation:
+	      // TODO: check if annotation is "public"
 	      if (pub_vals.contains(II)) {
 		pub_vals.insert(II->getArgOperand(0));
 	      }
@@ -264,6 +266,8 @@ namespace clou {
     }
   }
 
+  // TODO: add secret values here?
+  // Consider adding annotations to secret, and checking for annotations here
   bool NonspeculativeTaint::secret(llvm::Value *V) const {
     if (auto *I = llvm::dyn_cast<llvm::Instruction>(V))
       return !pub_vals.contains(I);

@@ -111,7 +111,7 @@ add_library(MitigatePass SHARED
   MitigatePass.cc
 )
 register_llvm_pass(MitigatePass)
-target_link_libraries(MitigatePass PRIVATE util Mitigation Transmitter NonspeculativeTaintAnalysis SpeculativeTaintAnalysis CommandLine LeakAnalysis MinCut cfg)
+target_link_libraries(MitigatePass PRIVATE util Mitigation Transmitter NonspeculativeTaintAnalysis SpeculativeTaintAnalysis SecretTaintAnalysis CommandLine LeakAnalysis MinCut cfg)
 if(Libprofiler_FOUND)
   target_compile_definitions(MitigatePass PRIVATE HAVE_LIBPROFILER)
 endif()

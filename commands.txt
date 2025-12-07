@@ -22,7 +22,7 @@ To clean the benchmarks:
 ninja -j7 clean_bench
 
 To compile just one benchmark (with timing):
-ninja bench/time_hacl_chacha20_8192_base // Replace this with the benchmark name
+ninja bench/time_hacl_chacha20_8192_llsct
 
 To clean just one benchmark:
-ninja -t clean bench/time_hacl_chacha20_8192_base // Also replace with benchmark name
+ninja -t clean bench/time_hacl_chacha20_8192_llsct // Also replace with benchmark name

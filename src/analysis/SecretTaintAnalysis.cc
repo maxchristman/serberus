@@ -54,64 +54,62 @@ namespace clou
 		llvm::DominatorTree DT(F);
 		llvm::LoopInfo LI(DT);
 
-		// std::vector<llvm::LoadInst *> ncals;
-		// for (llvm::LoadInst &LI : util::instructions<llvm::LoadInst>(F))
-		// 	if (!CAA.isConstantAddress(LI.getPointerOperand()))
-		// 		ncals.push_back(&LI);
-		// llvm::sort(ncals);
-
-		std::set<llvm::Value*> secret_values;
+		std::vector<llvm::Instruction*> secret_values;
 		for (llvm::CallInst &CI : util::instructions<llvm::CallInst>(F))
 		{
 
 			if (llvm::IntrinsicInst *II = llvm::dyn_cast<llvm::IntrinsicInst>(&CI))
 			{
-				llvm::errs() << "identified intrinsic\n";
 				if (II->isAssumeLikeIntrinsic())
 				{
-					llvm::errs() << "intrinsic is annotation\n";
 					llvm::Value *AnnotationArg = II->getArgOperand(1)->stripPointerCasts();
 
 					if (llvm::GlobalVariable *strvar = llvm::dyn_cast<llvm::GlobalVariable>(AnnotationArg)) {
-						llvm::errs() << "intrinsic has str var\n";
 						if (llvm::ConstantDataArray *strData = llvm::dyn_cast<llvm::ConstantDataArray>(strvar->getInitializer())) {
-							llvm::errs() << "intrinsic has constant data array\n";
 							llvm::StringRef annotationCStr = strData->getAsCString();
 
 							if (annotationCStr == "secret") {
 								llvm::Value *variable = CI.getArgOperand(0)->stripPointerCasts();
 								llvm::errs() << "Secret variable: " << variable->getName() << "\n";
-								secret_values.insert(variable);
-							} else {
-								llvm::errs() << "annotation string: " << annotationCStr << "\n";
+								// TODO: revisit if this is right or whatever
+								if (auto *I = llvm::dyn_cast<llvm::Instruction>(variable)) {
+									secret_values.push_back(I);
+								}
 							}
 						}
 					}
-					
 				}
 			}
 		}
-		/*
+		llvm::errs() << "secret value length: " << secret_values.size() << "\n";
+		llvm::sort(secret_values);
+
+		for (auto &val: secret_values) {
+			if (auto *I = llvm::dyn_cast<llvm::Instruction>(val)) {
+				llvm::errs() << "secret value type name: " << I->getOpcodeName() << "\n";
+			}
+		}
+		
 		using Idx = unsigned;
-		const auto ncal_to_idx = [&ncals](llvm::LoadInst *LI) -> Idx
+		const auto secret_to_idx = [&secret_values](llvm::Instruction *LI) -> Idx
 		{
-			const auto it = llvm::lower_bound(ncals, LI);
-			assert(it != ncals.end() && *it == LI);
-			return it - ncals.begin();
+			const auto it = llvm::lower_bound(secret_values, LI);
+			assert(it != secret_values.end() && *it == LI);
+			return it - secret_values.begin();
 		};
-		const auto idx_to_ncal = [&ncals](Idx idx) -> llvm::LoadInst *
+		const auto idx_to_secret = [&secret_values](Idx idx) -> llvm::Instruction *
 		{
-			assert(idx < ncals.size());
-			return ncals[idx];
+			assert(idx < secret_values.size());
+			return secret_values[idx];
 		};
 
-		std::map<llvm::StoreInst *, std::set<llvm::LoadInst *>> rfs; // only to CALs though
+		// Map all stores to any loads (constant or non-constant) which could alias to them
+		std::map<llvm::StoreInst *, std::set<llvm::LoadInst *>> rfs;
 		for (llvm::StoreInst &SI : util::instructions<llvm::StoreInst>(F))
 		{
 			auto &loads = rfs[&SI];
 			for (llvm::LoadInst &LI : util::instructions<llvm::LoadInst>(F))
-				if (CAA.isConstantAddress(LI.getPointerOperand()) &&
-					!isDefinitelyNoAlias(AA.alias(SI.getPointerOperand(), LI.getPointerOperand())))
+				if (!isDefinitelyNoAlias(AA.alias(SI.getPointerOperand(), LI.getPointerOperand())))
 					loads.insert(&LI);
 		}
 
@@ -124,10 +122,15 @@ namespace clou
 			for (llvm::Instruction &I : llvm::instructions(F))
 			{
 
-				if (llvm::LoadInst *LI = llvm::dyn_cast<llvm::LoadInst>(&I))
+				// taint secret value instructions with themselves
+				if (std::find(secret_values.begin(), secret_values.end(), &I) != secret_values.end())
 				{
-					if (!CAA.isConstantAddress(LI->getPointerOperand()))
-						taints[LI].set(ncal_to_idx(LI));
+					taints[&I].set(secret_to_idx(&I));
+					continue;
+				}
+
+				if (llvm::isa<llvm::LoadInst>(I)) {
+					// possible that there are some load instructions we are not handling
 					continue;
 				}
 
@@ -258,9 +261,9 @@ namespace clou
 		{
 			auto &orgs = this->taints[I];
 			for (Idx idx : iorgs)
-				orgs.insert(idx_to_ncal(idx));
+				orgs.insert(idx_to_secret(idx));
 		}
-    */
+    
 		return false;
 	}
 

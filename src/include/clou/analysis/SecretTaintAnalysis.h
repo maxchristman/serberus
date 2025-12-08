@@ -24,7 +24,12 @@ namespace clou {
 
     bool secret(llvm::Value *V);
 
+    uint64_t number_of_secrets();
+
+    bool has_secret();
+
   private:
+    uint64_t num_sec;
     // using IdxTaintMap = std::map<llvm::Instruction *, llvm::BitVector>;
   };
   

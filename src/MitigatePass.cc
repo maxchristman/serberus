@@ -364,26 +364,43 @@ namespace clou {
       }
 
       static void getNonConstantAddressSecretStores(llvm::Function& F, NonspeculativeTaint& NST, SpeculativeTaint& ST,
-						    ConstantAddressAnalysis& CAA, 
+						    ConstantAddressAnalysis& CAA, SecretTaint& SecT,
 						    std::set<llvm::StoreInst *>& nca_nt_sec_stores, std::set<llvm::StoreInst *>& nca_t_sec_stores,
 						    std::set<llvm::StoreInst *>& nca_pub_stores) {
+    // our copy to check non-transient tainted stores
+    std::set<llvm::StoreInst *> nca_nt_sec_stores_ours;
 	for (llvm::Instruction& I : llvm::instructions(F)) {
 	  if (auto *SI = llvm::dyn_cast<llvm::StoreInst>(&I)) {
 	    if (!CAA.isConstantAddress(SI->getPointerOperand())) {
+          // get instruction that sets the value of the store
 	      if (llvm::Instruction *V = llvm::dyn_cast<llvm::Instruction>(SI->getValueOperand())) {
 		bool nt_sec = false;
 		bool t_sec = false;
+        bool nt_sec_ours = false;
+        // get all loads which may have determined the value of the NCA store
+        // i.e. the original source of the value that the store is storing
+        //      from memory or a function arg
 		for (auto *op_V : get_incoming_loads(V)) {
-		  if (auto *op_I = llvm::dyn_cast<llvm::Instruction>(op_V))
-		    if (auto *op_LI = llvm::dyn_cast<llvm::LoadInst>(op_I))
-		      if (op_LI->getPointerOperand() == SI->getPointerOperand())
-			continue;
-		  if (NST.secret(op_V)) {
-		    nt_sec = true;
-		    break;
-		  }
-		  if (ST.secret(op_V))
-		    t_sec = true;
+            if (auto *op_I = llvm::dyn_cast<llvm::Instruction>(op_V))
+                if (auto *op_LI = llvm::dyn_cast<llvm::LoadInst>(op_I))
+                    if (op_LI->getPointerOperand() == SI->getPointerOperand())
+                        continue;
+
+            if (NST.secret(op_V) && SecT.has_secret() && SecT.secret(op_V))
+                nt_sec_ours = true;
+
+            if (NST.secret(op_V)) {
+		        nt_sec = true;
+                // TODO: make it a compiler option to default if no secret or if function should have no secrets
+                // TODO: allow to annotate a function to have no secret
+                // TODO: or annotation to support opposite of default
+                if (!SecT.has_secret())
+                    nt_sec_ours = true;
+		        break;
+		    }
+
+		    if (ST.secret(op_V))
+		        t_sec = true;
 		}
 
 		if (nt_sec && !NST.secret(V)) {
@@ -395,6 +412,9 @@ namespace clou {
 		  continue;
 		}
 
+        if (nt_sec_ours)
+            nca_nt_sec_stores_ours.insert(SI);
+
 		if (nt_sec)
 		  nca_nt_sec_stores.insert(SI);
 		else if (t_sec)
@@ -405,7 +425,11 @@ namespace clou {
 	    }
 	  }
 	}
-      }
+    llvm::errs() << "[MitigatePass] OG # of NCA NT Stores: " << nca_nt_sec_stores.size() << "\n";
+    llvm::errs() << "[MitigatePass] OG # of NCA T Stores: " << nca_t_sec_stores.size() << "\n";
+    llvm::errs() << "[MitigatePass] OG # of NCA Public Stores: " << nca_pub_stores.size() << "\n";
+    llvm::errs() << "[MitigatePass] Our # of NCA NT Stores: " << nca_nt_sec_stores_ours.size() << "\n";
+    }
 
       static std::set<llvm::Instruction *> getSourcesForNCAAccess(llvm::Instruction *I,
 								  [[maybe_unused]] const std::set<llvm::StoreInst *>& nca_pub_stores) {
@@ -594,6 +618,7 @@ namespace clou {
 	auto& ST = getAnalysis<SpeculativeTaint>();
 	auto& LA = getAnalysis<LeakAnalysis>();
 	auto& CAA = getAnalysis<ConstantAddressAnalysis>();
+    auto& SecT = getAnalysis<SecretTaint>();
 
 	
 	llvm::DominatorTree DT(F);
@@ -605,7 +630,7 @@ namespace clou {
 	
 	// Set of secret, speculatively out-of-bounds stores (speculative or nonspeculative)
 	std::set<llvm::StoreInst *> nca_nt_sec_stores, nca_t_sec_stores, nca_pub_stores;
-	getNonConstantAddressSecretStores(F, NST, ST, CAA, nca_nt_sec_stores, nca_t_sec_stores,
+	getNonConstantAddressSecretStores(F, NST, ST, CAA, SecT, nca_nt_sec_stores, nca_t_sec_stores,
 					  nca_pub_stores);
 
 	// Set of control-transfer instructions that require all previous OOB stores to have resolved

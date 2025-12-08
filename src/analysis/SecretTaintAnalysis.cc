@@ -66,7 +66,7 @@ namespace clou
 							llvm::StringRef annotationCStr = strData->getAsCString();
 							if (annotationCStr == "secret") {
 								llvm::Value *variable = CI.getArgOperand(0)->stripPointerCasts();
-								llvm::errs() << "Secret variable: " << variable->getName() << "\n";
+								//llvm::errs() << "Secret variable: " << variable->getName() << "\n";
 								// TODO: revisit if this is right or whatever
 								if (auto *I = llvm::dyn_cast<llvm::Instruction>(variable)) {
 									secret_values.push_back(I);
@@ -78,6 +78,11 @@ namespace clou
 			}
 		}
 		llvm::errs() << "[Secret Taint] # of secret values: " << secret_values.size() << "\n";
+        this->num_sec = secret_values.size();
+        for (int i=0; i<secret_values.size(); i++) {
+            llvm::errs() << *secret_values[i] << "\n";
+        }
+        if (!has_secret()) return false;
 #if 0
         if (secret_values.size() > 0) {
             for (llvm::User *U : secret_values[0]->users()) {
@@ -99,11 +104,13 @@ namespace clou
 
 		llvm::sort(secret_values);
 
+#if 0
 		for (auto &val: secret_values) {
 			if (auto *I = llvm::dyn_cast<llvm::Instruction>(val)) {
 				llvm::errs() << "secret value type name: " << I->getOpcodeName() << "\n";
 			}
 		}
+#endif
 		
 		using Idx = unsigned;
 		const auto secret_to_idx = [&secret_values](llvm::Instruction *LI) -> Idx
@@ -296,6 +303,7 @@ namespace clou
 		} while (taints != taints_bak);
 
         // print instructions that are tainted
+        #if 0
         for (llvm::Instruction &I : llvm::instructions(F)) {
             if (!taints[&I].empty()) {
                 llvm::errs() << "Tainted instruction: " << I << "\n";
@@ -309,6 +317,7 @@ namespace clou
                 llvm::errs() << "\n"; 
             }
         }
+        #endif
 
 		// Convert back to easy-to-process results.
 		this->taints.clear();
@@ -334,6 +343,15 @@ namespace clou
 			return false;
 		}
 	}
+
+    
+    uint64_t SecretTaint::number_of_secrets() {
+        return num_sec;
+    }
+
+    bool SecretTaint::has_secret() {
+        return number_of_secrets() > 0;
+    }
 
 	void SecretTaint::print(llvm::raw_ostream &os, const llvm::Module *) const
 	{

@@ -17,6 +17,8 @@
 #include "clou/analysis/NonspeculativeTaintAnalysis.h"
 #include "clou/analysis/ConstantAddressAnalysis.h"
 
+// #define PRINT_NO_SECRET_VALUES 1
+
 namespace clou
 {
 
@@ -48,9 +50,8 @@ namespace clou
 
 	bool SecretTaint::runOnFunction(llvm::Function &F)
 	{
-        // TODO: remove so other functions can run
-        if (F.getName() != "our_test_function") return false;
-		llvm::errs() << "[Secret Taint] Running on function: " << F.getName() << "\n";
+        // if (F.getName() != "our_test_function") return false;
+		// llvm::errs() << "[Secret Taint] Running on function: " << F.getName() << "\n";
 		auto &AA = getAnalysis<llvm::AAResultsWrapperPass>().getAAResults();
 		const auto &CAA = getAnalysis<ConstantAddressAnalysis>();
 		llvm::DominatorTree DT(F);
@@ -59,7 +60,7 @@ namespace clou
 		std::vector<llvm::Instruction*> secret_values;
 		for (llvm::CallInst &CI : util::instructions<llvm::CallInst>(F)) {
 			if (llvm::IntrinsicInst *II = llvm::dyn_cast<llvm::IntrinsicInst>(&CI)) {
-				if (II->isAssumeLikeIntrinsic()) {
+				if (II->isAssumeLikeIntrinsic() && II->arg_size() >= 2) {
 					llvm::Value *AnnotationArg = II->getArgOperand(1)->stripPointerCasts();
 					if (llvm::GlobalVariable *strvar = llvm::dyn_cast<llvm::GlobalVariable>(AnnotationArg)) {
 						if (llvm::ConstantDataArray *strData = llvm::dyn_cast<llvm::ConstantDataArray>(strvar->getInitializer())) {
@@ -77,12 +78,17 @@ namespace clou
 				}
 			}
 		}
-		llvm::errs() << "[Secret Taint] # of secret values: " << secret_values.size() << "\n";
+#ifdef PRINT_NO_SECRET_VALUES
+		// llvm::errs() << "[Secret Taint] # of secret values: " << secret_values.size() << "\n";
+#endif
         this->num_sec = secret_values.size();
+        if (!has_secret()) return false;
+#if 0
         for (int i=0; i<secret_values.size(); i++) {
             llvm::errs() << *secret_values[i] << "\n";
         }
-        if (!has_secret()) return false;
+#endif
+        
 #if 0
         if (secret_values.size() > 0) {
             for (llvm::User *U : secret_values[0]->users()) {
@@ -141,7 +147,7 @@ namespace clou
         for (llvm::Instruction *SecI : secret_values) {
             if (auto *allocI = llvm::dyn_cast<llvm::AllocaInst>(SecI)) {
                 for (llvm::User *U : allocI->users()) {
-                    if (llvm::Instruction *Usr = dyn_cast<llvm::Instruction>(U)) {
+                    if (llvm::Instruction *Usr = llvm::dyn_cast<llvm::Instruction>(U)) {
                         taints[Usr].set(secret_to_idx(SecI));
                     }
                 } 

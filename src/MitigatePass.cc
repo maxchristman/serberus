@@ -61,6 +61,13 @@
 # include <gperftools/profiler.h>
 #endif
 
+// #define OURS 1
+// #define PRINT_HAS_SECRET 1
+// #define PRINT_ELIM_STORES
+
+// find which functions have the highiest # of LFENCEs
+using FuncLFencePair = std::pair<std::string, int>;
+
 namespace clou {
   namespace {
 
@@ -316,6 +323,7 @@ namespace clou {
 
     struct MitigatePass final : public llvm::FunctionPass {
       static inline char ID = 0;
+      std::vector<FuncLFencePair> lfenceCounts; // find which functions have the highest # of LFENCEs
     
       MitigatePass() : llvm::FunctionPass(ID) {}
 
@@ -350,13 +358,18 @@ namespace clou {
       }
 
       template <class OutputIt>
-      OutputIt getPublicLoads(llvm::Function& F, ConstantAddressAnalysis& CAA, OutputIt out) {
+      OutputIt getPublicLoads(llvm::Function& F, ConstantAddressAnalysis& CAA, OutputIt out, OutputIt out_ours) {
 	LeakAnalysis& LA = getAnalysis<LeakAnalysis>();
 	SpeculativeTaint& ST = getAnalysis<SpeculativeTaint>();
+	SecretTaint& SecT = getAnalysis<SecretTaint>();
 	for (auto& I : llvm::instructions(F)) {
 	  if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
 	    if (LA.mayLeak(LI) && (!ST.secret(LI) || CAA.isConstantAddress(LI->getPointerOperand()))) {
 	      *out++ = LI;
+	    }
+	    
+	    if (LA.mayLeak(LI) && (!ST.secret(LI) || (SecT.has_secret() && !SecT.secret(LI)) || CAA.isConstantAddress(LI->getPointerOperand()))) {
+	      *out_ours++ = LI;
 	    }
 	  }
 	}
@@ -425,10 +438,33 @@ namespace clou {
 	    }
 	  }
 	}
-    llvm::errs() << "[MitigatePass] OG # of NCA NT Stores: " << nca_nt_sec_stores.size() << "\n";
-    llvm::errs() << "[MitigatePass] OG # of NCA T Stores: " << nca_t_sec_stores.size() << "\n";
-    llvm::errs() << "[MitigatePass] OG # of NCA Public Stores: " << nca_pub_stores.size() << "\n";
-    llvm::errs() << "[MitigatePass] Our # of NCA NT Stores: " << nca_nt_sec_stores_ours.size() << "\n";
+    // llvm::errs() << "[MitigatePass] OG # of NCA NT Stores: " << nca_nt_sec_stores.size() << "\n";
+    // llvm::errs() << "[MitigatePass] OG # of NCA T Stores: " << nca_t_sec_stores.size() << "\n";
+    // llvm::errs() << "[MitigatePass] OG # of NCA Public Stores: " << nca_pub_stores.size() << "\n";
+    // llvm::errs() << "[MitigatePass] Our # of NCA NT Stores: " << nca_nt_sec_stores_ours.size() << "\n";
+    // overwrite their nca_nt_sec_stores
+    size_t old_nt_sec_store_size = nca_nt_sec_stores.size();
+    // llvm::errs() << "Old nt sec stores size: " << old_nt_sec_store_size << "\n";
+#ifdef OURS
+    if (SecT.has_secret()) { // has secret check should be unnecessary if default is no secrets
+        nca_nt_sec_stores.clear();
+        llvm::copy(nca_nt_sec_stores_ours, std::inserter(nca_nt_sec_stores, nca_nt_sec_stores.end()));
+    }
+#endif
+    size_t new_nca_nt_sec_stores_size = nca_nt_sec_stores.size();
+    // llvm::errs() << "New nt sec stores size: " << new_nca_nt_sec_stores_size << "\n";
+    size_t eliminated_nca_nt_sec_stores = old_nt_sec_store_size - new_nca_nt_sec_stores_size;
+
+#ifdef PRINT_HAS_SECRET
+    if (SecT.has_secret())
+        llvm::errs() << "[MitigatePass] Function has a secret\n";
+    else
+        llvm::errs() << "[MitigatePass] No secrets\n";
+#endif
+
+#ifdef PRINT_ELIM_STORES
+    llvm::errs() << "[MitigatePass] Eliminated " << eliminated_nca_nt_sec_stores << " NCA NT secret stores\n"; 
+#endif
     }
 
       static std::set<llvm::Instruction *> getSourcesForNCAAccess(llvm::Instruction *I,
@@ -626,7 +662,8 @@ namespace clou {
 
 	// Set of speculatively public loads	
 	std::set<llvm::LoadInst *> spec_pub_loads;
-	getPublicLoads(F, CAA, std::inserter(spec_pub_loads, spec_pub_loads.end()));
+	std::set<llvm::LoadInst *> spec_pub_loads_ours;
+	getPublicLoads(F, CAA, std::inserter(spec_pub_loads, spec_pub_loads.end()), std::inserter(spec_pub_loads_ours, spec_pub_loads_ours.end()));
 	
 	// Set of secret, speculatively out-of-bounds stores (speculative or nonspeculative)
 	std::set<llvm::StoreInst *> nca_nt_sec_stores, nca_t_sec_stores, nca_pub_stores;
@@ -826,11 +863,12 @@ namespace clou {
 
 	  // Create ST-pairs for {oob_sec_stores X spec_pub_loads}
 	  CountStat stat_spec_pub_loads(log, "spec_pub_loads", spec_pub_loads.size());
+	  CountStat stat_spec_pub_loads_ours(log, "spec_pub_loads_ours", spec_pub_loads_ours.size());
 
 	  std::set<llvm::Instruction *> ncas;
 	  llvm::copy(nca_nt_sec_stores, std::inserter(ncas, ncas.end()));
 	  llvm::copy(nca_t_sec_stores, std::inserter(ncas, ncas.end()));
-         //llvm::errs() << "[MitigatePass] NT # of ncas for xmit: " << nca_nt_sec_stores.size() << "\n";
+    //   llvm::errs() << "[MitigatePass] NT # of ncas for xmit: " << nca_nt_sec_stores.size() << "\n";
           //llvm::errs() << "[MitigatePass] T # of ncas for xmit: " << nca_t_sec_stores.size() << "\n";
           //llvm::errs() << "[MitigatePass] Total # of ncas for xmit: " << ncas.size() << "\n";
 	  if (NCASAll) // always 0 
@@ -897,7 +935,7 @@ namespace clou {
 	}
 
 
-	if (enabled.ncas_ctrl) {
+	if (enabled.ncas_ctrl) { // TODO: handle memcpy inlines
 
 	  // OPT NOTE: For some reason, this seems to make overall performance worse.
 	  if (ExpandSTs && false) {
@@ -1018,6 +1056,7 @@ namespace clou {
 	      for (llvm::Value *SourceV : get_incoming_loads(xmit_op))
 	      // TODO: maybe check if LoadInst uses secret value here?
 		if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(SourceV))
+		// if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(SourceV) && (!SecT.has_secret() || SecT.secret(SourceV)))
 		  sources.insert(LI);
 	    A.add_st(make_node_set(sources), std::set<Node>{&xmit});
 	  }
@@ -1148,7 +1187,7 @@ namespace clou {
 #endif
 	auto G_ = G;
 	const auto sts_bak = A.get_sts().vec();
-	std::cerr << "Min-Cut on " << F.getName().str() << std::endl;
+	// std::cerr << "Min-Cut on " << F.getName().str() << std::endl;
 	A.run();
 	const clock_t solve_stop = clock();
 	const float solve_duration = (static_cast<float>(solve_stop) - static_cast<float>(solve_start)) / CLOCKS_PER_SEC;
@@ -1300,8 +1339,12 @@ namespace clou {
 		  }));
 	    }
 
-	    
-	    log["lfences"] = cut_edges.size();
+	    size_t num_lfences = cut_edges.size();
+	    log["lfences"] = num_lfences;
+        if (num_lfences > 0) {
+            // llvm::errs() << "[MitigatePass] Function " << F.getName() << " has " << num_lfences << " LFENCEs\n";
+            lfenceCounts.emplace_back(F.getName().str(), num_lfences);
+        }
 
 	    auto& j_ncas_nt_sec = log["ncas_nt_sec"] = llvm::json::Array();
 	    for (auto *SI : nca_nt_sec_stores)
@@ -1476,6 +1519,22 @@ namespace clou {
 	  assert(sink_out_flat == sink_in);
 	}
       }
+
+    // find which functions had the highest number of LFENCEs
+    bool doFinalization(llvm::Module &M) override {
+        // Sort descending by LFENCE count
+        std::sort(lfenceCounts.begin(), lfenceCounts.end(),
+                  [](const FuncLFencePair &a, const FuncLFencePair &b) {
+                      return a.second > b.second;
+                  });
+
+        llvm::errs() << "\n[MitigatePass] LFENCE counts by function (descending):\n";
+        for (auto &p : lfenceCounts) {
+            llvm::errs() << p.first << ": " << p.second << " LFENCEs\n";
+        }
+
+        return false;
+    }
     };
 
     llvm::RegisterPass<MitigatePass> X{"clou-mitigate",

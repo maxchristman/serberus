@@ -48,26 +48,22 @@ namespace clou
 
 	bool SecretTaint::runOnFunction(llvm::Function &F)
 	{
-		llvm::errs() << "secret taint is actually running\n\n\n\n";
+        // TODO: remove so other functions can run
+        if (F.getName() != "our_test_function") return false;
+		llvm::errs() << "[Secret Taint] Running on function: " << F.getName() << "\n";
 		auto &AA = getAnalysis<llvm::AAResultsWrapperPass>().getAAResults();
 		const auto &CAA = getAnalysis<ConstantAddressAnalysis>();
 		llvm::DominatorTree DT(F);
 		llvm::LoopInfo LI(DT);
 
 		std::vector<llvm::Instruction*> secret_values;
-		for (llvm::CallInst &CI : util::instructions<llvm::CallInst>(F))
-		{
-
-			if (llvm::IntrinsicInst *II = llvm::dyn_cast<llvm::IntrinsicInst>(&CI))
-			{
-				if (II->isAssumeLikeIntrinsic())
-				{
+		for (llvm::CallInst &CI : util::instructions<llvm::CallInst>(F)) {
+			if (llvm::IntrinsicInst *II = llvm::dyn_cast<llvm::IntrinsicInst>(&CI)) {
+				if (II->isAssumeLikeIntrinsic()) {
 					llvm::Value *AnnotationArg = II->getArgOperand(1)->stripPointerCasts();
-
 					if (llvm::GlobalVariable *strvar = llvm::dyn_cast<llvm::GlobalVariable>(AnnotationArg)) {
 						if (llvm::ConstantDataArray *strData = llvm::dyn_cast<llvm::ConstantDataArray>(strvar->getInitializer())) {
 							llvm::StringRef annotationCStr = strData->getAsCString();
-
 							if (annotationCStr == "secret") {
 								llvm::Value *variable = CI.getArgOperand(0)->stripPointerCasts();
 								llvm::errs() << "Secret variable: " << variable->getName() << "\n";
@@ -81,7 +77,26 @@ namespace clou
 				}
 			}
 		}
-		llvm::errs() << "secret value length: " << secret_values.size() << "\n";
+		llvm::errs() << "[Secret Taint] # of secret values: " << secret_values.size() << "\n";
+#if 0
+        if (secret_values.size() > 0) {
+            for (llvm::User *U : secret_values[0]->users()) {
+                if (llvm::Instruction *Usr = dyn_cast<llvm::Instruction>(U)) {
+                    llvm::errs() << "User instruction: " << *Usr << "\n";
+                    llvm::errs() << "  Opcode: " << Usr->getOpcodeName() << "\n";
+                    // 3. Print operands
+                    for (unsigned i = 0; i < Usr->getNumOperands(); ++i) {
+                        llvm::Value *Op = Usr->getOperand(i);
+                        llvm::errs() << "    Operand " << i << ": ";
+                        Op->print(llvm::errs());
+                        llvm::errs() << "\n";
+                    }
+                    llvm::errs() << "\n";
+                }
+            }
+        }
+#endif
+
 		llvm::sort(secret_values);
 
 		for (auto &val: secret_values) {
@@ -114,7 +129,19 @@ namespace clou
 		}
 
 		std::map<llvm::Instruction *, llvm::SparseBitVector<>> taints, taints_bak;
-
+        // Taint all of the secret's users for each secret
+        //  --> if a store stores to the secret addr (from alloca, keep track of that store instruction)
+        for (llvm::Instruction *SecI : secret_values) {
+            if (auto *allocI = llvm::dyn_cast<llvm::AllocaInst>(SecI)) {
+                for (llvm::User *U : allocI->users()) {
+                    if (llvm::Instruction *Usr = dyn_cast<llvm::Instruction>(U)) {
+                        taints[Usr].set(secret_to_idx(SecI));
+                    }
+                } 
+            } else {
+                assert(false && "Secret value is not an AllocaInst");
+            }
+        }
 		do
 		{
 			taints_bak = taints;
@@ -128,14 +155,18 @@ namespace clou
 					taints[&I].set(secret_to_idx(&I));
 					continue;
 				}
-
-				if (llvm::isa<llvm::LoadInst>(I)) {
-					// possible that there are some load instructions we are not handling
-					continue;
-				}
-
+                
+                // TODO: check if load already handled by if not a void type, taint from instructions
+                // possible that there are some load instructions we are not handling
+                
 				if (llvm::StoreInst *SI = llvm::dyn_cast<llvm::StoreInst>(&I))
 				{
+                    // taint stores whose value is tainted
+                    if (auto *value_I = llvm::dyn_cast<llvm::Instruction>(SI->getValueOperand())) {
+                        taints[SI] |= taints[value_I];
+                    }
+
+                    // taint every load that could alias with a tainted store
 					if (auto *value_I = llvm::dyn_cast<llvm::Instruction>(SI->getValueOperand()))
 					{
 						const auto &orgs = taints[value_I];
@@ -145,6 +176,9 @@ namespace clou
 					}
 					continue;
 				}
+
+                
+
 
 				if (llvm::IntrinsicInst *II = llvm::dyn_cast<llvm::IntrinsicInst>(&I))
 				{
@@ -212,7 +246,9 @@ namespace clou
 								if (llvm::Instruction *arg_I = llvm::dyn_cast<llvm::Instruction>(arg_V))
 									taints[II] |= taints[arg_I];
 							break;
-
+                        
+                        // Note: our annotations are marked as tainted, other annotations are treated as og
+                        //       and probably has no implications since nothing will depend on the annotation
 						case llvm::Intrinsic::annotation:
 							if (auto *arg = llvm::dyn_cast<llvm::Instruction>(II->getArgOperand(0)))
 								taints[II] |= taints[arg];
@@ -236,9 +272,13 @@ namespace clou
 				{
 					continue;
 				}
+                
+                if (llvm::LoadInst *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
+                    assert(!LI->getType()->isVoidTy());
+                }
 
 				if (!I.getType()->isVoidTy())
-				{
+				{ // Loads should be tainted here, right?
 					// taint if any inputs are tainted
 					auto &out = taints[&I];
 					for (llvm::Value *op_V : I.operands())
@@ -254,6 +294,21 @@ namespace clou
 			}
 
 		} while (taints != taints_bak);
+
+        // print instructions that are tainted
+        for (llvm::Instruction &I : llvm::instructions(F)) {
+            if (!taints[&I].empty()) {
+                llvm::errs() << "Tainted instruction: " << I << "\n";
+                llvm::errs() << "  Opcode: " << I.getOpcodeName() << "\n";
+                for (unsigned i = 0; i < I.getNumOperands(); ++i) {
+                    llvm::Value *Op = I.getOperand(i);
+                    llvm::errs() << "    Operand " << i << ": ";
+                    Op->print(llvm::errs());
+                    llvm::errs() << "\n";
+                }
+                llvm::errs() << "\n"; 
+            }
+        }
 
 		// Convert back to easy-to-process results.
 		this->taints.clear();

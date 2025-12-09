@@ -17,8 +17,8 @@
 #include "clou/analysis/NonspeculativeTaintAnalysis.h"
 #include "clou/analysis/ConstantAddressAnalysis.h"
 
-#define DEMO 1
-#define DEMO_FUNCTION "ncas_non_ptr_demo"
+// #define DEMO 1
+#define DEMO_FUNCTION "param_ptr_demo"
 // #define PRINT_NUM_SECRET_VALUES 1
 #define PRINT_SEC_VALUES 1
 // #define PRINT_TAINTED_INST_EXPANDED 1
@@ -60,7 +60,9 @@ namespace clou
 #ifdef DEMO
 		if (F.getName() != DEMO_FUNCTION) return false;
 #endif
-		llvm::errs() << "[Secret Taint] Running on function: " << F.getName() << "\n";
+        // if ((F.getName() != "main") && (F.getName() != "xmain") && (F.getName() != "xmain.llsct.dup")) {
+		//     llvm::errs() << "[Secret Taint] Running on function: " << F.getName() << "\n";
+        // }
 		auto &AA = getAnalysis<llvm::AAResultsWrapperPass>().getAAResults();
 		const auto &CAA = getAnalysis<ConstantAddressAnalysis>();
 		llvm::DominatorTree DT(F);

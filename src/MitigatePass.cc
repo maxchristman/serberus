@@ -62,8 +62,8 @@
 #include <gperftools/profiler.h>
 #endif
 
-#define DEMO 1
-#define DEMO_FUNCTION "ncas_non_ptr_demo"
+// #define DEMO 1
+#define DEMO_FUNCTION "param_ptr_demo"
 #define OURS 1
 // #define PRINT_HAS_SECRET 1
 // #define PRINT_ELIM_STORES
@@ -738,7 +738,9 @@ namespace clou
 #ifdef DEMO
         		if (F.getName() != DEMO_FUNCTION) return false;
 #endif
-				llvm::errs() << "[MitigatePass] Processing function: " << F.getName() << "\n";
+                // if ((F.getName() != "main") && (F.getName() != "xmain") && (F.getName() != "xmain.llsct.dup")) {
+				//     llvm::errs() << "[MitigatePass] Processing function: " << F.getName() << "\n";
+                // }
 
 				if (whitelisted(F))
 					return false;
@@ -1551,8 +1553,10 @@ namespace clou
 						log["lfences"] = num_lfences;
 						if (num_lfences > 0)
 						{
-							// llvm::errs() << "[MitigatePass] Function " << F.getName() << " has " << num_lfences << " LFENCEs\n";
-							lfenceCounts.emplace_back(F.getName().str(), num_lfences);
+                            if ((F.getName() != "main") && (F.getName() != "xmain") && (F.getName() != "xmain.llsct.dup")) {
+							    // llvm::errs() << "[MitigatePass] Function " << F.getName() << " has " << num_lfences << " LFENCEs\n";
+							    lfenceCounts.emplace_back(F.getName().str(), num_lfences);
+                            }
 						}
 
 						auto &j_ncas_nt_sec = log["ncas_nt_sec"] = llvm::json::Array();

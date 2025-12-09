@@ -63,6 +63,7 @@
 #endif
 
 #define DEMO 1
+#define DEMO_FUNCTION "ncas_non_ptr_demo"
 #define OURS 1
 // #define PRINT_HAS_SECRET 1
 // #define PRINT_ELIM_STORES
@@ -735,7 +736,7 @@ namespace clou
 			bool runOnFunction(llvm::Function &F) override
 			{
 #ifdef DEMO
-        		if (F.getName() != "param_test_ptr") return false;
+        		if (F.getName() != DEMO_FUNCTION) return false;
 #endif
 				llvm::errs() << "[MitigatePass] Processing function: " << F.getName() << "\n";
 
@@ -913,6 +914,7 @@ namespace clou
 					{
 						if (CAA.isConstantAddress(SI.getPointerOperand()))
 						{
+                            // llvm::errs() << "Store Inst is constant: " << SI << "\n";
 							++stat_cas;
 						}
 						else
@@ -925,10 +927,12 @@ namespace clou
 #endif
 							if (non_spec_secret || ST.secret(V))
 							{
+                                // llvm::errs() << "Store Inst is secret: " << SI << "\n";
 								++stat_ncas_sec;
 							}
 							else
 							{
+                                // llvm::errs() << "Store Inst is public: " << SI << "\n";
 								++stat_ncas_pub;
 							}
 						}

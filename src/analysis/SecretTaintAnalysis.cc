@@ -18,7 +18,8 @@
 #include "clou/analysis/ConstantAddressAnalysis.h"
 
 #define DEMO 1
-#define PRINT_NUM_SECRET_VALUES 1
+#define DEMO_FUNCTION "ncas_non_ptr_demo"
+// #define PRINT_NUM_SECRET_VALUES 1
 #define PRINT_SEC_VALUES 1
 // #define PRINT_TAINTED_INST_EXPANDED 1
 #define PRINT_TAINTED_INST 1
@@ -57,7 +58,7 @@ namespace clou
 	bool SecretTaint::runOnFunction(llvm::Function &F)
 	{
 #ifdef DEMO
-		if (F.getName() != "param_test_ptr") return false;
+		if (F.getName() != DEMO_FUNCTION) return false;
 #endif
 		llvm::errs() << "[Secret Taint] Running on function: " << F.getName() << "\n";
 		auto &AA = getAnalysis<llvm::AAResultsWrapperPass>().getAAResults();
@@ -85,6 +86,7 @@ namespace clou
 								//  TODO: revisit if this is right or whatever
 								if (auto *I = llvm::dyn_cast<llvm::Instruction>(variable))
 								{
+                                    secret_values.push_back(I); // pushing alloca
 #ifdef TRACK_PTR_PARAM
                                     // user of alloca should be store inst
                                     for (llvm::User *U : I->users())
@@ -106,8 +108,6 @@ namespace clou
                                             }
                                         }
                                     }
-#else
-                                secret_values.push_back(I); // pushing alloca
 #endif
 								}
 							}

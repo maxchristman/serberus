@@ -1,6 +1,7 @@
 
 #include <ctime>
 
+#include <algorithm>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -61,7 +62,7 @@
 #include <gperftools/profiler.h>
 #endif
 
-// #define OURS 1
+#define OURS 1
 // #define PRINT_HAS_SECRET 1
 // #define PRINT_ELIM_STORES
 
@@ -732,6 +733,8 @@ namespace clou
 
 			bool runOnFunction(llvm::Function &F) override
 			{
+                // TODO: remove so other functions can run
+		        if (F.getName() != "load_test_function") return false;
 				// llvm::errs() << "[MitigatePass] Processing function: "
 				//      << F.getName() << "\n";
 
@@ -1106,12 +1109,41 @@ namespace clou
 					for (const auto &[xmit, xmit_ops] : transmitters)
 					{
 						std::set<llvm::Instruction *> ncals;
-						for (llvm::Instruction *xmit_op : xmit_ops)
+						std::set<llvm::Instruction *> ncals_ours;
+						for (llvm::Instruction *xmit_op : xmit_ops) {
 							llvm::copy(ST.taints.at(xmit_op), std::inserter(ncals, ncals.end()));
+						}
+						llvm::errs() << "------- NCALS --------" << "\n";
+						llvm::errs() << "ncals size: " << ncals.size() << "\n";
+						for (auto *I: ncals) {
+							llvm::errs() << *I << "\n";
+						}
+#ifdef OURS
+						std::set_intersection(
+							ncals.begin(), ncals.end(), SecT.load_taints.begin(), SecT.load_taints.end(), std::inserter(ncals_ours, ncals_ours.end())
+						);
+						llvm::errs() << "------- SecT.load_taints--------" << "\n";
+						llvm::errs() << "SecT.load_taints count: " << SecT.load_taints.size() << "\n";
+						llvm::errs() << "nacls_ours size: " << ncals_ours.size() << "\n";
+						for (auto *I: SecT.load_taints) {
+							llvm::errs() << *I << "\n";
+						}
+						for (llvm::Instruction *ncal : (SecT.has_secret() ? ncals_ours : ncals))
+#else
 						for (llvm::Instruction *ncal : ncals)
+#endif
 						{
 							if (!ExpandSTs || ncal == &ncal->getFunction()->front().front())
+							// if (6 || 7)
 							{
+								if (llvm::LoadInst *LIII = llvm::dyn_cast<llvm::LoadInst>(ncal)) {
+									// llvm::errs() << "Detected load instruction in NCALs\n\n";
+
+								} else {
+									llvm::errs() << "Detected non-load instruction in NCALs\n\n\n\n";
+									assert(0);
+								}
+								
 								A.add_st(std::set<Node>{ncal}, std::set<Node>{xmit});
 								++stat_ncal_xmit;
 							}
@@ -1123,6 +1155,7 @@ namespace clou
 							}
 						}
 					}
+
 				}
 
 				if (enabled.ncal_glob)
@@ -1132,7 +1165,7 @@ namespace clou
 					{
 						llvm::Value *SV = SI.getValueOperand();
 						if (CAA.isConstantAddress(SI.getPointerOperand()) && util::isGlobalAddressStore(&SI) &&
-							!NST.secret(SV) && ST.secret(SV))
+							!NST.secret(SV) && ST.secret(SV)) // TODO: future work.
 						{
 							for (llvm::Instruction *LI : ST.taints.at(llvm::cast<llvm::Instruction>(SV)))
 							{

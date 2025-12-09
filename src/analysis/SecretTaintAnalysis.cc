@@ -50,7 +50,7 @@ namespace clou
 
 	bool SecretTaint::runOnFunction(llvm::Function &F)
 	{
-		// if (F.getName() != "our_test_function") return false;
+		if (F.getName() != "load_test_function") return false;
 		// llvm::errs() << "[Secret Taint] Running on function: " << F.getName() << "\n";
 		auto &AA = getAnalysis<llvm::AAResultsWrapperPass>().getAAResults();
 		const auto &CAA = getAnalysis<ConstantAddressAnalysis>();
@@ -340,11 +340,32 @@ namespace clou
 
 		// Convert back to easy-to-process results.
 		this->taints.clear();
+		this->load_taints.clear();
 		for (const auto &[I, iorgs] : taints)
 		{
 			auto &orgs = this->taints[I];
 			for (Idx idx : iorgs)
 				orgs.insert(idx_to_secret(idx));
+		}
+
+		for (const auto &it: this->taints) {
+			if (it.second.empty()) continue;
+			llvm::errs() << "From " << *it.first << "\n";
+			if (llvm::LoadInst *LI = llvm::dyn_cast<llvm::LoadInst>(it.first)) {
+				if (CAA.isConstantAddress(LI->getPointerOperand())) {
+					continue;
+				}
+				this->load_taints.insert(LI);
+			}
+			for (auto *I: it.second) {
+				llvm::errs() << "- " << *I << "\n";
+				if (llvm::LoadInst *LI = llvm::dyn_cast<llvm::LoadInst>(I)) {
+					if (CAA.isConstantAddress(LI->getPointerOperand())) {
+						continue;
+					}
+					this->load_taints.insert(LI);
+				}
+			}
 		}
 
 		return false;

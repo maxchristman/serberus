@@ -17,6 +17,7 @@ namespace clou {
     using TaintMap = std::map<llvm::Instruction *, std::set<llvm::Instruction *>>;
 
     TaintMap taints;
+    std::set<llvm::Instruction *> load_taints;
 
     void getAnalysisUsage(llvm::AnalysisUsage& AU) const override;
     bool runOnFunction(llvm::Function& F) override;

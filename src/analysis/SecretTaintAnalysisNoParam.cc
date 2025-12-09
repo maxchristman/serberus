@@ -17,13 +17,7 @@
 #include "clou/analysis/NonspeculativeTaintAnalysis.h"
 #include "clou/analysis/ConstantAddressAnalysis.h"
 
-#define DEMO 1
-#define PRINT_NUM_SECRET_VALUES 1
-#define PRINT_SEC_VALUES 1
-// #define PRINT_TAINTED_INST_EXPANDED 1
-#define PRINT_TAINTED_INST 1
-// #define PRINT_USERS 1
-#define TRACK_PTR_PARAM 1
+// #define PRINT_NO_SECRET_VALUES 1
 
 namespace clou
 {
@@ -56,10 +50,8 @@ namespace clou
 
 	bool SecretTaint::runOnFunction(llvm::Function &F)
 	{
-#ifdef DEMO
-		if (F.getName() != "param_test_ptr") return false;
-#endif
-		llvm::errs() << "[Secret Taint] Running on function: " << F.getName() << "\n";
+		if (F.getName() != "load_test_function") return false;
+		// llvm::errs() << "[Secret Taint] Running on function: " << F.getName() << "\n";
 		auto &AA = getAnalysis<llvm::AAResultsWrapperPass>().getAAResults();
 		const auto &CAA = getAnalysis<ConstantAddressAnalysis>();
 		llvm::DominatorTree DT(F);
@@ -85,30 +77,7 @@ namespace clou
 								//  TODO: revisit if this is right or whatever
 								if (auto *I = llvm::dyn_cast<llvm::Instruction>(variable))
 								{
-#ifdef TRACK_PTR_PARAM
-                                    // user of alloca should be store inst
-                                    for (llvm::User *U : I->users())
-				                    {
-					                    if (llvm::StoreInst *store_inst = llvm::dyn_cast<llvm::StoreInst>(U))
-					                    {
-                                            auto *store_as_inst = llvm::dyn_cast<llvm::Instruction>(store_inst);
-                                            // push store inst
-                                            if (store_as_inst)
-                                                secret_values.push_back(store_as_inst);
-                                            // push users of store
-                                            for (llvm::User *store_inst_user : store_inst->getValueOperand()->users())
-                                            {
-                                                if (llvm::Instruction *store_user_as_inst = llvm::dyn_cast<llvm::Instruction>(store_inst_user)) 
-                                                {
-                                                    if (store_user_as_inst != store_as_inst)
-                                                        secret_values.push_back(store_user_as_inst);
-                                                }
-                                            }
-                                        }
-                                    }
-#else
-                                secret_values.push_back(I); // pushing alloca
-#endif
+									secret_values.push_back(I);
 								}
 							}
 						}
@@ -116,22 +85,19 @@ namespace clou
 				}
 			}
 		}
-#ifdef PRINT_NUM_SECRET_VALUES
-		llvm::errs() << "[Secret Taint] # of secret values: " << secret_values.size() << "\n";
+#ifdef PRINT_NO_SECRET_VALUES
+		// llvm::errs() << "[Secret Taint] # of secret values: " << secret_values.size() << "\n";
 #endif
 		this->num_sec = secret_values.size();
 		if (!has_secret())
 			return false;
-#ifdef PRINT_SEC_VALUES
-        llvm::errs() << "===== Secret Values =====\n";
-        for (size_t i=0; i<secret_values.size(); i++) {
-            int j = i+1;
-            llvm::errs() << j << ") " << *secret_values[i] << "\n";
+#if 0
+        for (int i=0; i<secret_values.size(); i++) {
+            llvm::errs() << *secret_values[i] << "\n";
         }
 #endif
 
-#ifdef PRINT_USERS
-        llvm::errs() << "===== Secret Value Users =====\n";
+#if 0
         if (secret_values.size() > 0) {
             for (llvm::User *U : secret_values[0]->users()) {
                 if (llvm::Instruction *Usr = dyn_cast<llvm::Instruction>(U)) {
@@ -188,27 +154,20 @@ namespace clou
 		//  --> if a store stores to the secret addr (from alloca, keep track of that store instruction)
 		for (llvm::Instruction *SecI : secret_values)
 		{
-            for (llvm::User *U : SecI->users())
-            {
-                if (llvm::Instruction *Usr = llvm::dyn_cast<llvm::Instruction>(U))
-                {
-                    // originally store to alloca
-                    taints[Usr].set(secret_to_idx(SecI));
-                    // users of store val
-#if 0
-                    if (llvm::StoreInst *store_inst = llvm::dyn_cast<llvm::StoreInst>(Usr))
-                    {
-                        for (llvm::User *store_val_user : store_inst->getValueOperand()->users())
-                        {
-                            if (llvm::Instruction *store_val_user_inst = llvm::dyn_cast<llvm::Instruction>(store_val_user)) 
-                            {
-                                taints[store_val_user_inst].set(secret_to_idx(SecI));
-                            }
-                        }
-                    }
-#endif
-                }
-            }
+			if (auto *allocI = llvm::dyn_cast<llvm::AllocaInst>(SecI))
+			{
+				for (llvm::User *U : allocI->users())
+				{
+					if (llvm::Instruction *Usr = llvm::dyn_cast<llvm::Instruction>(U))
+					{
+						taints[Usr].set(secret_to_idx(SecI));
+					}
+				}
+			}
+			else
+			{
+				assert(false && "Secret value is not an AllocaInst");
+			}
 		}
 		do
 		{
@@ -363,12 +322,10 @@ namespace clou
 		} while (taints != taints_bak);
 
 // print instructions that are tainted
-#ifdef PRINT_TAINTED_INST_EXPANDED
-        llvm::errs() << "===== Tainted Inst Expanded =====\n";
-        size_t tainted_ctr_exp = 0;
+#if 0
         for (llvm::Instruction &I : llvm::instructions(F)) {
-            if (!taints[&I].empty() && !llvm::isa<llvm::BitCastInst>(I)) {
-                llvm::errs() << ++tainted_ctr_exp << ") Tainted instruction: " << I << "\n";
+            if (!taints[&I].empty()) {
+                llvm::errs() << "Tainted instruction: " << I << "\n";
                 llvm::errs() << "  Opcode: " << I.getOpcodeName() << "\n";
                 for (unsigned i = 0; i < I.getNumOperands(); ++i) {
                     llvm::Value *Op = I.getOperand(i);
@@ -391,23 +348,9 @@ namespace clou
 				orgs.insert(idx_to_secret(idx));
 		}
 
-        // print instructions that are tainted
-#ifdef PRINT_TAINTED_INST
-        llvm::errs() << "===== Tainted Inst =====\n";
-        size_t tainted_ctr = 0;
-        for (const auto &it: this->taints) {
-			if (it.second.empty()) continue;
-            if (llvm::Instruction *I = llvm::dyn_cast<llvm::Instruction>(it.first)) {
-                if (!llvm::isa<llvm::BitCastInst>(I)) {
-                    llvm::errs() << ++tainted_ctr << ") " << *I << "\n";
-                }
-            }
-        }
-#endif
-
 		for (const auto &it: this->taints) {
 			if (it.second.empty()) continue;
-			// llvm::errs() << "From " << *it.first << "\n";
+			llvm::errs() << "From " << *it.first << "\n";
 			if (llvm::LoadInst *LI = llvm::dyn_cast<llvm::LoadInst>(it.first)) {
 				if (CAA.isConstantAddress(LI->getPointerOperand())) {
 					continue;
@@ -415,7 +358,7 @@ namespace clou
 				this->load_taints.insert(LI);
 			}
 			for (auto *I: it.second) {
-				// llvm::errs() << "- " << *I << "\n";
+				llvm::errs() << "- " << *I << "\n";
 				if (llvm::LoadInst *LI = llvm::dyn_cast<llvm::LoadInst>(I)) {
 					if (CAA.isConstantAddress(LI->getPointerOperand())) {
 						continue;

@@ -62,6 +62,7 @@
 #include <gperftools/profiler.h>
 #endif
 
+#define DEMO 1
 #define OURS 1
 // #define PRINT_HAS_SECRET 1
 // #define PRINT_ELIM_STORES
@@ -733,10 +734,10 @@ namespace clou
 
 			bool runOnFunction(llvm::Function &F) override
 			{
-                // TODO: remove so other functions can run
-		        if (F.getName() != "load_test_function") return false;
-				// llvm::errs() << "[MitigatePass] Processing function: "
-				//      << F.getName() << "\n";
+#ifdef DEMO
+        		if (F.getName() != "param_test_ptr") return false;
+#endif
+				llvm::errs() << "[MitigatePass] Processing function: " << F.getName() << "\n";
 
 				if (whitelisted(F))
 					return false;
@@ -917,7 +918,12 @@ namespace clou
 						else
 						{
 							auto *V = SI.getValueOperand();
-							if (NST.secret(V) || ST.secret(V))
+#ifdef OURS                 
+                            bool non_spec_secret = SecT.has_secret() ? SecT.secret(V) && NST.secret(V) : NST.secret(V);
+#else
+                            bool non_spec_secret = NST.secret(V);
+#endif
+							if (non_spec_secret || ST.secret(V))
 							{
 								++stat_ncas_sec;
 							}
@@ -1073,13 +1079,12 @@ namespace clou
 				{ // TODO: handle memcpy inlines
 
 					// OPT NOTE: For some reason, this seems to make overall performance worse.
-					if (ExpandSTs && false)
+					if (ExpandSTs && false) // unused
 					{
 
 						for (llvm::StoreInst *SI : llvm::concat<llvm::StoreInst *const>(nca_nt_sec_stores, nca_t_sec_stores))
 						{
 							// Find sources.
-							// TODO: maybe modify which stores are added as sources
 							const auto &sources = get_sources(SI);
 							A.add_st(make_node_set(sources), std::set<Node>{SI}, make_node_set(ctrls));
 						}
@@ -1113,37 +1118,33 @@ namespace clou
 						for (llvm::Instruction *xmit_op : xmit_ops) {
 							llvm::copy(ST.taints.at(xmit_op), std::inserter(ncals, ncals.end()));
 						}
-						llvm::errs() << "------- NCALS --------" << "\n";
-						llvm::errs() << "ncals size: " << ncals.size() << "\n";
-						for (auto *I: ncals) {
-							llvm::errs() << *I << "\n";
-						}
-#ifdef OURS
-						std::set_intersection(
-							ncals.begin(), ncals.end(), SecT.load_taints.begin(), SecT.load_taints.end(), std::inserter(ncals_ours, ncals_ours.end())
-						);
-						llvm::errs() << "------- SecT.load_taints--------" << "\n";
-						llvm::errs() << "SecT.load_taints count: " << SecT.load_taints.size() << "\n";
-						llvm::errs() << "nacls_ours size: " << ncals_ours.size() << "\n";
-						for (auto *I: SecT.load_taints) {
-							llvm::errs() << *I << "\n";
-						}
-						for (llvm::Instruction *ncal : (SecT.has_secret() ? ncals_ours : ncals))
-#else
+						// llvm::errs() << "------- NCALS --------" << "\n";
+						// llvm::errs() << "ncals size: " << ncals.size() << "\n";
+                        // llvm::errs() << "[MitigatePass NCALs]\n";
+						// for (auto *I: ncals) {
+						// 	llvm::errs() << *I << "\n";
+						// }
+// 						std::set_intersection(
+// 							ncals.begin(), ncals.end(), SecT.load_taints.begin(), SecT.load_taints.end(), std::inserter(ncals_ours, ncals_ours.end())
+// 						);
+// 						llvm::errs() << "------- SecT.load_taints--------" << "\n";
+// 						llvm::errs() << "SecT.load_taints count: " << SecT.load_taints.size() << "\n";
+// 						llvm::errs() << "nacls_ours size: " << ncals_ours.size() << "\n";
+// 						for (auto *I: SecT.load_taints) {
+// 							llvm::errs() << *I << "\n";
+// 						}
+// 						for (llvm::Instruction *ncal : (SecT.has_secret() ? ncals_ours : ncals))
 						for (llvm::Instruction *ncal : ncals)
-#endif
 						{
 							if (!ExpandSTs || ncal == &ncal->getFunction()->front().front())
-							// if (6 || 7)
 							{
-								if (llvm::LoadInst *LIII = llvm::dyn_cast<llvm::LoadInst>(ncal)) {
-									// llvm::errs() << "Detected load instruction in NCALs\n\n";
+								// if (llvm::LoadInst *LIII = llvm::dyn_cast<llvm::LoadInst>(ncal)) {
+								// 	// llvm::errs() << "Detected load instruction in NCALs\n\n";
 
-								} else {
-									llvm::errs() << "Detected non-load instruction in NCALs\n\n\n\n";
-									assert(0);
-								}
-								
+								// } else {
+								// 	llvm::errs() << "Detected non-load instruction in NCALs\n\n\n\n";
+								// 	assert(0);
+								// } 
 								A.add_st(std::set<Node>{ncal}, std::set<Node>{xmit});
 								++stat_ncal_xmit;
 							}
@@ -1164,13 +1165,20 @@ namespace clou
 					for (llvm::StoreInst &SI : util::instructions<llvm::StoreInst>(F))
 					{
 						llvm::Value *SV = SI.getValueOperand();
-						if (CAA.isConstantAddress(SI.getPointerOperand()) && util::isGlobalAddressStore(&SI) &&
-							!NST.secret(SV) && ST.secret(SV)) // TODO: future work.
+						if (CAA.isConstantAddress(SI.getPointerOperand()) && util::isGlobalAddressStore(&SI) && ST.secret(SV)) // TODO: check NST.secret --> SecT.secret
 						{
-							for (llvm::Instruction *LI : ST.taints.at(llvm::cast<llvm::Instruction>(SV)))
-							{
-								A.add_st(std::set<Node>{LI}, std::set<Node>{&SI});
-							}
+#ifdef OURS
+                            bool non_spec_secret = SecT.has_secret() ? SecT.secret(SV) && NST.secret(SV) : NST.secret(SV);
+#else
+                            bool non_spec_secret = NST.secret(SV);
+#endif
+                            if (!non_spec_secret)
+                            { 
+                                for (llvm::Instruction *LI : ST.taints.at(llvm::cast<llvm::Instruction>(SV)))
+                                {
+                                    A.add_st(std::set<Node>{LI}, std::set<Node>{&SI});
+                                }
+                            }
 						}
 					}
 				}
@@ -1227,9 +1235,10 @@ namespace clou
 				}
 
 				if (enabled.load_xmit)
-				{
+				{ // unused for llsct
 
 					// {load} x {dependent transmitters}
+                    // llvm::errs() << "Load x dep xmit\n\n";
 					for (llvm::Instruction &xmit : llvm::instructions(F))
 					{
 						std::set<llvm::Instruction *> sources;

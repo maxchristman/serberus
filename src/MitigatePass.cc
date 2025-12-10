@@ -64,7 +64,14 @@
 
 // #define DEMO 1
 #define DEMO_FUNCTION "param_ptr_demo"
-#define OURS 1
+// #define OURS 1
+#define BENCHMARK "libsodium_salsa20_64"
+// #define WRITE_LFENCES
+#ifdef OURS
+    #define SUFFIX "ours"
+#else
+    #define SUFFIX "serberus"
+#endif
 // #define PRINT_HAS_SECRET 1
 // #define PRINT_ELIM_STORES
 
@@ -111,6 +118,7 @@ namespace clou
 				ProfilerStart(path);
 				std::free(path);
 				profile_active = true;
+                llvm::errs() << "Profile file: " << (s ? s : path) << "\n";
 			}
 			else if (const char *s = std::getenv("PROF"))
 			{
@@ -741,7 +749,11 @@ namespace clou
                 // if ((F.getName() != "main") && (F.getName() != "xmain") && (F.getName() != "xmain.llsct.dup")) {
 				//     llvm::errs() << "[MitigatePass] Processing function: " << F.getName() << "\n";
                 // }
-
+#ifdef HAVE_LIBPROFILER
+                llvm::errs() << "Gprofiler is active\n";
+#else
+                llvm::errs() << "Gprofiler is not active\n";
+#endif 
 				if (whitelisted(F))
 					return false;
 
@@ -1551,13 +1563,17 @@ namespace clou
 
 						size_t num_lfences = cut_edges.size();
 						log["lfences"] = num_lfences;
-						if (num_lfences > 0)
-						{
-                            if ((F.getName() != "main") && (F.getName() != "xmain") && (F.getName() != "xmain.llsct.dup")) {
+                        if ((F.getName() != "main") && (F.getName() != "xmain") && (F.getName() != "xmain.llsct.dup")) {
 							    // llvm::errs() << "[MitigatePass] Function " << F.getName() << " has " << num_lfences << " LFENCEs\n";
-							    lfenceCounts.emplace_back(F.getName().str(), num_lfences);
-                            }
-						}
+                            lfenceCounts.emplace_back(F.getName().str(), num_lfences);
+                        }
+						// if (num_lfences > 0)
+						// {
+                        //     if ((F.getName() != "main") && (F.getName() != "xmain") && (F.getName() != "xmain.llsct.dup")) {
+						// 	    // llvm::errs() << "[MitigatePass] Function " << F.getName() << " has " << num_lfences << " LFENCEs\n";
+						// 	    // lfenceCounts.emplace_back(F.getName().str(), num_lfences);
+                        //     }
+						// }
 
 						auto &j_ncas_nt_sec = log["ncas_nt_sec"] = llvm::json::Array();
 						for (auto *SI : nca_nt_sec_stores)
@@ -1771,12 +1787,24 @@ namespace clou
 							  return a.second > b.second;
 						  });
 
-				llvm::errs() << "\n[MitigatePass] LFENCE counts by function (descending):\n";
+                // if (lfenceCounts.empty()) {
+				//     llvm::errs() << "\n[MitigatePass] LFENCE counts by function (descending) for module: " << M.getName() << "\n";
+                // }
+#ifdef WRITE_LFENCES
+                std::ofstream outfile;
+                outfile.open("/mnt/extra/code/llsct-passes/function_counts/"BENCHMARK"_"SUFFIX".txt", std::ios::app);
+                if (!outfile) {
+                    llvm::errs() << "Error opening function write file\n";
+                    llvm::errs() << "STOPP!\n\n\n\n\n";
+                    return false;
+                }
 				for (auto &p : lfenceCounts)
 				{
-					llvm::errs() << p.first << ": " << p.second << " LFENCEs\n";
+					// llvm::errs() << p.first << ": " << p.second << " LFENCEs\n";
+                   outfile << p.first << ": " << p.second << "\n"; 
 				}
-
+                outfile.close();
+#endif
 				return false;
 			}
 		};

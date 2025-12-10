@@ -20,9 +20,9 @@
 // #define DEMO 1
 #define DEMO_FUNCTION "param_ptr_demo"
 // #define PRINT_NUM_SECRET_VALUES 1
-#define PRINT_SEC_VALUES 1
+// #define PRINT_SEC_VALUES 1
 // #define PRINT_TAINTED_INST_EXPANDED 1
-#define PRINT_TAINTED_INST 1
+// #define PRINT_TAINTED_INST 1
 // #define PRINT_USERS 1
 #define TRACK_PTR_PARAM 1
 

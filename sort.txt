@@ -1,0 +1,1 @@
+sort -t: -k2 -n -r functions.txt -o sorted.txt

@@ -3,8 +3,8 @@
 - [Lfence Insertion Demo][https://www.youtube.com/watch?v=geHofP26dEc]
 
 Most modifications are in:
-- src/MitigatePass.cc
-- src/analysis/SecretTaintAnalysis.cc
+- src/MitigatePass.cc (modified)
+- src/analysis/SecretTaintAnalysis.cc (ours)
 
 # LLSCT
 

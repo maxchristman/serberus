@@ -1,3 +1,11 @@
+# CSE 583 Info
+- [Taint Tracking Demo][https://www.youtube.com/watch?v=knXgk9sc7I8]
+- [Lfence Insertion Demo][https://www.youtube.com/watch?v=geHofP26dEc]
+
+Most modifications are in:
+- src/MitigatePass.cc
+- src/analysis/SecretTaintAnalysis.cc
+
 # LLSCT
 
 This repository contains some of the passes implementing LLSCT, but not all.
